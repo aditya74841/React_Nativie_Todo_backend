@@ -44,4 +44,8 @@ const getTodo = async (req, res) => {
   }
 };
 
-export { createTodo, getTodo };
+const updateTodo = async (req, res) => {
+  try {
+  } catch (error) {}
+};
+export { createTodo, getTodo, updateTodo };
