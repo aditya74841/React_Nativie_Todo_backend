@@ -19,6 +19,6 @@ import todoRouter from "../src/routes/todo.routes.js";
 
 app.use("/api/v1/todo", todoRouter);
 app.get("/", (req, res) => {
-  console.log("Server is running at home")
+ return res.status(200).json({message:"Server is running perfectly"})
 });
 export { httpServer };
