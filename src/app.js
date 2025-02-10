@@ -1,19 +1,15 @@
 import express from "express";
 import { createServer } from "http";
-import cors from "cors"
+import cors from "cors";
 const app = express();
 
 const httpServer = createServer(app);
 
 app.use(
-    cors({
-      origin: [     
-       
-        "*"
-      ],
-     
-    })
-  );
+  cors({
+    origin: ["*"],
+  })
+);
 
 app.use(express.json({ limit: "16kb" }));
 app.use(express.urlencoded({ extended: true, limit: "16kb" }));
@@ -22,5 +18,7 @@ app.use(express.static("public")); // configure static file to save images local
 import todoRouter from "../src/routes/todo.routes.js";
 
 app.use("/api/v1/todo", todoRouter);
-
+app.get("/", (req, res) => {
+  console.log("Server is running at home")
+});
 export { httpServer };
