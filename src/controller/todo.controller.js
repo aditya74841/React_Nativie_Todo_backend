@@ -46,6 +46,7 @@ const getTodo = async (req, res) => {
 
 const updateTodo = async (req, res) => {
   try {
+    const { todoId } = req.params;
   } catch (error) {}
 };
 export { createTodo, getTodo, updateTodo };
