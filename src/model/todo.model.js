@@ -1,27 +1,5 @@
 import mongoose, { Schema } from "mongoose";
 
-// const todoSchema = new Schema(
-//   {
-//     title: {
-//       type: String,
-//       required: true,
-//     },
-//     description: {
-//       type: String,
-//     },
-//     isCompleted: {
-//       type: Boolean,
-//       default: false,
-//     },
-//     completedTime: {
-//       type: Date,
-//       default: null,
-//     },
-//   },
-//   { timestamps: true }
-// );
-
-// export const Todo = mongoose.model("Todo", todoSchema);
 
 const taskSchema = new mongoose.Schema({
   title: { type: String, required: true },
@@ -33,23 +11,6 @@ const taskSchema = new mongoose.Schema({
     default: "none",
   }, // Determines if task repeats
 
-  completionHistory: [
-    {
-      date: { type: Date,  default: Date.now() }, // Specific date task was completed
-      completedAt: { type: Date, default: Date.now() }, // Timestamp of completion
-    },
-  ],
-
-  // status: {
-  //   type: String,
-  //   enum: ['pending', 'completed'],
-  //   default: 'pending'
-  // },
-  status: {
-    type: String,
-    enum: ["Pending", "Completed"],
-    default: "Pending",
-  },
 });
 
 const calendarSchema = new mongoose.Schema(

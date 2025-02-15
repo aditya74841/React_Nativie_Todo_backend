@@ -1,5 +1,6 @@
+import { TodayTodo } from "../model/todaytodo.model.js";
 import { Todo } from "../model/todo.model.js";
-
+import cron from "node-cron";
 const createTodo = async (req, res) => {
   try {
     const { title, description, date, repeat } = req.body;
@@ -15,10 +16,8 @@ const createTodo = async (req, res) => {
       description,
       date: new Date(date), // Convert to Date format
       repeat,
-      completionHistory: [],
     };
 
-    console.log("The new Task is ", newTask);
     // Check if calendar exists (Assuming single calendar for now)
     let calendar = await Todo.findOne();
 
@@ -31,74 +30,157 @@ const createTodo = async (req, res) => {
 
     await calendar.save();
     // console.log("Create todo controller last console is running ");
+    await updateTodayTodo();
 
-    res.status(201).json({ message: "Task added successfully", task: newTask });
+    return res
+      .status(201)
+      .json({ message: "Task added successfully", task: newTask });
   } catch (error) {
-    console.log(error);
-    res
+    return res
       .status(500)
       .json({ error: "Internal Server Error", details: error.message });
   }
 };
 
-const getTodo = async (req, res) => {
+const updateTodayTodo = async (req = null, res = null) => {
   try {
-    const { date } = req.params;
-    const selectedDate = new Date(date);
+    // Fetch the single calendar document
+    const calendar = await Todo.findOne();
 
-    const calendars = await Todo.find().populate("tasks"); // Fetch all calendars with tasks
+    if (!calendar) {
+      if (res) return res.status(404).json({ error: "No calendar found." });
+      console.error("No calendar found.");
+      return;
+    }
 
-    let pendingTasks = [];
+    // Get today's date in YYYY-MM-DD format
+    const todayStr = new Date().toISOString().split("T")[0];
 
-    calendars.forEach((calendar) => {
-      calendar.tasks.forEach((task) => {
-        const isTaskRepeating =
-          task.repeat !== "none" && task.date <= selectedDate;
-        const isCompletedOnDate = task.completionHistory.some(
-          (entry) =>
-            entry.date.toISOString().split("T")[0] ===
-            selectedDate.toISOString().split("T")[0]
-        );
+    // Filter tasks that are either for today or repeat daily
+    const todayTasks = calendar.tasks
+      .filter((task) => {
+        const taskDateStr = task.date.toISOString().split("T")[0];
+        return taskDateStr === todayStr || task.repeat === "daily";
+      })
+      .map((task) => ({
+        taskId: task._id,
+        isCompleted: false, // Reset completion status daily
+      }));
 
-        if (
-          task.date.toISOString().split("T")[0] ===
-            selectedDate.toISOString().split("T")[0] ||
-          (isTaskRepeating && !isCompletedOnDate)
-        ) {
-          pendingTasks.push({
-            title: task.title,
-            repeat: task.repeat,
-            status: isCompletedOnDate ? "Completed" : "Pending",
-            description: task.description,
-          });
-        }
-        // console.log("Checking the get Todo");
-      });
-    });
+    // If no tasks for today, clear today's todo list
+    if (todayTasks.length === 0) {
+      await TodayTodo.deleteMany({});
+      if (res)
+        return res
+          .status(200)
+          .json({ message: "No tasks for today, cleared today’s todo list." });
+      return;
+    }
 
-    res.json(pendingTasks);
+    // Upsert today's tasks (replace old tasks with new ones)
+    await TodayTodo.findOneAndUpdate(
+      {},
+      { tasks: todayTasks },
+      { upsert: true, new: true }
+    );
+
+    if (res) {
+      return res
+        .status(200)
+        .json({
+          message: "Today's tasks updated successfully",
+          tasks: todayTasks,
+        });
+    }
   } catch (error) {
-    res.status(500).json({ error: "Internal Server Error" });
+    console.error("Error updating today's tasks:", error);
+    if (res) {
+      return res
+        .status(500)
+        .json({ error: "Internal Server Error", details: error.message });
+    }
   }
 };
 
+// Schedule job to run daily at midnight
+cron.schedule(
+  "0 0 * * *",
+  async () => {
+    await updateTodayTodo();
+  },
+  {
+    timezone: "Asia/Kolkata", // Set to your preferred timezone (IST for India)
+  }
+);
+
+const getTodayTasks = async (req, res) => {
+  try {
+    // Fetch today's todo list
+    const todayTodo = await TodayTodo.findOne().lean();
+
+    if (!todayTodo || !todayTodo.tasks.length) {
+      return res.status(404).json({ error: "No tasks found for today." });
+    }
+
+    // Extract all taskIds as strings for comparison
+    const taskIds = todayTodo.tasks.map((task) => task.taskId.toString());
+
+
+    // Fetch the calendar (assuming there's only one calendar)
+    const calendar = await Todo.findOne().lean();
+
+    if (!calendar || !calendar.tasks?.length) {
+      return res
+        .status(404)
+        .json({ error: "No calendar found or no tasks available." });
+    }
+
+    // Create a map for quick lookup of isCompleted status
+    const taskCompletionMap = new Map(
+      todayTodo.tasks.map((t) => [
+        t.taskId.toString(),
+        { isCompleted: t.isCompleted, _id: t._id },
+      ])
+    );
+
+    // Filter and map tasks efficiently
+    const tasksWithDetails = calendar.tasks
+      .filter((task) => taskIds.includes(task._id.toString())) // Ensure ID comparison as string
+      .map((task) => ({
+        taskId: task._id,
+        title: task.title,
+        description: task.description,
+        isCompleted:
+          taskCompletionMap.get(task._id.toString())?.isCompleted || false,
+        _id: taskCompletionMap.get(task._id.toString())?._id || null,
+      }));
+
+
+    res.status(200).json({ tasks: tasksWithDetails });
+  } catch (error) {
+    console.error("Error fetching today's tasks:", error);
+    res
+      .status(500)
+      .json({ error: "Internal Server Error", details: error.message });
+  }
+};
 const updateTaskStatus = async (req, res) => {
   try {
     const { taskId } = req.params;
-    const { status } = req.body; // Expecting status update (e.g., "Completed" or "Pending")
 
-    if (!taskId || !status) {
-      return res.status(400).json({ error: "Task ID and status are required." });
+    if (!taskId ) {
+      return res
+        .status(400)
+        .json({ error: "Task ID is required." });
     }
 
     // Find the task inside the Todo collection
-    const calendar = await Todo.findOne({ "tasks._id": taskId });
+    const calendar = await TodayTodo.findOne({ "tasks._id": taskId });
 
     if (!calendar) {
       return res.status(404).json({ error: "No tasks found." });
     }
 
-    console.log("The Update Task is ", taskId, status);
 
     // Find the specific task
     const task = calendar.tasks.find((task) => task._id.toString() === taskId);
@@ -108,22 +190,17 @@ const updateTaskStatus = async (req, res) => {
     }
 
     // Update task status
-    task.status = status;
+    task.isCompleted = !task.isCompleted;
 
-    // If the status is "Completed", add the current date to completion history
-    if (status.toLowerCase() === "completed") {
-      task.completionHistory.push({
-        date: new Date(),
-        completedAt: new Date(),
-      });
-    }
-
+  
     await calendar.save();
 
     res.status(200).json({ message: "Task status updated successfully", task });
   } catch (error) {
     console.error("Error updating task:", error);
-    res.status(500).json({ error: "Internal Server Error", details: error.message });
+    res
+      .status(500)
+      .json({ error: "Internal Server Error", details: error.message });
   }
 };
 
@@ -164,4 +241,10 @@ const deleteTodo = async (req, res) => {
   }
 };
 
-export { createTodo, getTodo, deleteTodo, updateTaskStatus };
+export {
+  createTodo,
+  getTodayTasks,
+  deleteTodo,
+  updateTaskStatus,
+  updateTodayTodo,
+};
